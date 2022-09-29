@@ -1,0 +1,112 @@
+#include<PZEM004Tv30.h>
+#include <ESP8266WiFi.h>
+#include <WiFiUdp.h>
+#include<NTPClient.h>
+#include<HTTPSRedirect.h>
+#include "DebugMacros.h"
+PZEM004Tv30 pzem(13,12);
+
+const long utc0ffsetInseconds =3600;
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP,"pool.ntp.org",utc0ffsetInseconds);
+float date_time;
+
+
+String sheetTime ="";
+String sheetvolt ="";
+String sheetcur  ="";
+String sheetpowe ="";
+String sheetener ="";
+String sheetfreq ="";
+String sheetpf   ="";
+const char* ssid = "realme X2";                //Put wifi ssid within the quotesAKfycbxqX3ySYtERyQ56pneQLdrXphzhC4ezunuXXlTIn-CdP_GnIaosVtUfnfGLziHfpjxd
+const char* password = "090099000999"; 
+
+const char* host = "script.google.com";
+const char* GScriptId = "AKfycbz-mv7Hb_6eXKdHBnhWPhDJiyE518z55SxJt1FVFvR-DWaqbFtKbdNvfBE9_NicBvamOg"; // Replace with your own google script id
+const int httpsPort = 443; //the https port is same
+String url = String("/macros/s/") + GScriptId + "/exec?value=Time";  // Write Teperature to Google Spreadsheet at cell A1
+// Fetch Google Calendar events for 1 week ahead
+//replace with sheet name not with spreadsheet file name taken from google
+//String payload_base =  "{\"command\": \"appendRow\", \ 
+                    //\"sheet_name\": \"Sheet1\", \ 
+                      // \"values\": ";
+
+String payload_base =  "{\"command\": \"insert_row\", \"sheet_name\": \"Sheet1\", \"values\": ";
+                       
+String payload = "";
+
+HTTPSRedirect* client = nullptr;
+
+//Put WiFi password within the quotes
+void setup() {
+  // put your setup code here, to run once:
+    Serial.begin(9600);
+    Serial.print("Connecting to wifi: ");
+    Serial.println(ssid);
+
+    WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+}
+  client = new HTTPSRedirect(httpsPort);
+  client->setInsecure();
+  client->setPrintResponseBody(true);
+  client->setContentTypeHeader("application/json");
+  Serial.print("Connecting to ");
+  Serial.println(host);          //try to connect with "script.google.com"
+
+  // Try to connect for a maximum of 5 times then exit
+  bool flag = false;
+  for (int i = 0; i < 5; i++) {
+    int retval = client->connect(host, httpsPort);
+    if (retval == 1) {
+      flag = true;
+      break;
+    }
+    else
+      Serial.println("Connection failed. Retrying...");
+  }
+   client->GET(url, host);
+   timeClient.begin();
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+  timeClient.update();
+  date_time=timeClient.getEpochTime();
+  float volt = pzem.voltage();
+  float cur = pzem.current();
+  float powe = pzem.power();
+  float ener = pzem.energy();
+  float freq = pzem.frequency();
+  float pf = pzem.pf();
+
+  static int error_count =0;
+  static int connect_count=0;
+  const unsigned int MAX_CONNECT =20;
+  static bool flag =false;
+
+  sheetTime = String(date_time);
+  sheetvolt = String(volt);
+  sheetcur  = String(cur);
+  sheetpowe = String(powe);
+  sheetener = String(ener);
+  sheetfreq = String(freq);
+  sheetpf   = String(pf);
+
+  payload = payload_base+"\"" +sheetTime +"," + sheetvolt +","+sheetcur +","+sheetpowe+","+sheetener+","+sheetfreq+","+ sheetpf + "\"}";
+  Serial.println(payload);  
+  if (isnan(volt)) {
+    volt= 0;
+    cur= 0;
+    powe= 0;
+    ener= 0;
+    freq= 0;
+    pf= 0;
+  }
+      client->connect(host, httpsPort);
+      client->POST(url, host, payload, false);
+ delay(1000);
+}
